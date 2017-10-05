@@ -1,0 +1,7 @@
+.DS_Store
+.vscode
+run_all_accounts.sh
+*.csv
+*_summary
+*.zip
+log_checker_v2.py
