@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--profile', action='store', dest='profile', default='default')
     parser.add_argument('--hours', action='store', dest='hours', required=True)
     parser.add_argument('--ssm', action='store_true', dest='ssm', default=False)
+    parser.add_argument('--windows', action='store_true', dest='win', default=False)
     parser.add_argument('--debug', action='store_true', dest='debug', default=False)
     parser.add_argument('--csv', action='store_true', dest='csv', default=False)
     parser.add_argument('--json', action='store_true', dest='json', default=False)
@@ -31,16 +32,23 @@ def main():
     # set boto session parameters
     session = boto3.Session(profile_name=args.profile, region_name=args.region)
 
-    # Get Instance Ids fo running Windows Instances
-    instance_ids = get_instances(session, 'windows')
+    # Should we look at just Windows instances or non-Windows
+    if args.win:
+        instance_ids = get_windows_instances(session, 'windows')
+        log_group_names = get_log_groups(session, '/windows')
+    else:
+        win_instances = get_windows_instances(session, 'windows')
+        all_instances = get_all_instances(session)
+        instance_ids = [x for x in all_instances if x not in win_instances]
+        log_group_names = get_log_groups(session, '/var')
 
     # Get Log Streams of Windows Logs
-    log_group_names = get_log_groups(session, '/windows')
     log_streams = []
     for instance in instance_ids:
         log_streams.append(
-            get_log_streams(args.debug, session, log_group_names, instance, int(args.hours))
+            get_log_streams(session, log_group_names, instance, int(args.hours))
         )
+
     # This is a simple but slightly hacky way of flattening a list of lists
     log_stream_ids = [y for x in log_streams for y in x]
 
@@ -86,8 +94,8 @@ def main():
         print '\n============================================================================'
         print 'Instances with Missing Logs in CloudWatch Logs:  {}\n{}'.format(len(missing_logs), missing_logs)
         print '\n============================================================================'
-        print 'Count of Running Instances = {} | Count of Missing CloudWatch Logs = {} | Count of SSM Agent Not Active = {}'.format(
-            len(instance_ids), len(missing_logs), len(ssm_not_active)
+        print 'Count of Running Instances = {} | Count of Missing CloudWatch Logs = {}'.format(
+            len(instance_ids), len(missing_logs)
         )
         if args.ssm:
             print '\n============================================================================'
@@ -97,7 +105,7 @@ def main():
 ########## HELPER FUNCTIONS ##########
 
 def get_log_groups(session, prefix):
-    """get_loggroups"""
+    """get_loggroups based on a allocated prefix"""
     client = session.client('logs')
     groups = client.describe_log_groups(
         logGroupNamePrefix=prefix
@@ -110,7 +118,7 @@ def get_log_groups(session, prefix):
     return log_group
 
 
-def get_log_streams(debug, session, log_group_names, instance_id, hours):
+def get_log_streams(session, log_group_names, instance_id, hours):
     """get_log_streams returns list of log streams that are within the log groups"""
     client = session.client('logs')
 
@@ -127,22 +135,42 @@ def get_log_streams(debug, session, log_group_names, instance_id, hours):
                     instance_id
                 ],
                 startTime=start,
-                endTime=end,
-                limit=10000
+                endTime=end
             )
+        # Am aware that this a bit shit
         except Exception:
-            return []
-        # Debug Output
-        if debug:
-            print 'streams | {}'.format(response['searchedLogStreams'])
+            continue
 
         for logs in response['searchedLogStreams']:
-            log_streams.append(logs['logStreamName'])
+            log_streams.append(str(logs['logStreamName']))
 
     return log_streams
 
 
-def get_instances(session, platform):
+
+def get_all_instances(session):
+    """getInstances gets list of windows instance Ids"""
+    client = session.client('ec2')
+    response = client.describe_instances(
+        Filters=[
+            {
+                'Name': 'instance-state-name',
+                'Values': [
+                    'running'
+                ]
+            }
+        ]
+    )
+
+    ids = []
+    for res in response['Reservations']:
+        for inst in res['Instances']:
+            ids.append(inst['InstanceId'])
+
+    return ids
+
+
+def get_windows_instances(session, platform):
     """getInstances gets list of windows instance Ids"""
     client = session.client('ec2')
     response = client.describe_instances(
@@ -226,6 +254,19 @@ def collate_instance_data(session, profile, missing_logs_instances):
 
     return missing_log_instance_info
 
+
+def get_ami_info(session, image_id):
+    """Return more info about a specific AMI"""
+    client = session.client('ec2')
+    response = client.describe_images(
+        ImageIds=[
+            image_id
+        ]
+    )
+    return response['Images']
+
+
+
 def more_instance_info(session, instance_id, aws_env):
     """Gets more information about an instance"""
     client = session.client('ec2')
@@ -234,17 +275,46 @@ def more_instance_info(session, instance_id, aws_env):
             instance_id
         ]
     )
-    instance_dict = response['Reservations'][0]['Instances'][0]
+    try:
+        instance_dict = response['Reservations'][0]['Instances'][0]
+    except KeyError:
+        print instance_id
 
     owner_tag = get_tag(instance_dict['Tags'], 'Owner')
-    ssmconfig_tag = get_tag(instance_dict['Tags'], 'SSMCWconfig')
-    role_tag = get_tag(instance_dict['Tags'], 'Role')
-    env_tag = get_tag(instance_dict['Tags'], 'Env')
+    # ssmconfig_tag = get_tag(instance_dict['Tags'], 'SSMCWconfig')
+    # role_tag = get_tag(instance_dict['Tags'], 'Role')
+    # env_tag = get_tag(instance_dict['Tags'], 'Env')
     name_tag = get_tag(instance_dict['Tags'], 'Name')
     team_tag = get_tag(instance_dict['Tags'], 'Team')
     hsn_tag = get_tag(instance_dict['Tags'], 'HSN')
     projectcode_tag = get_tag(instance_dict['Tags'], 'Costcentre_Projectcode')
+    ami_info = get_ami_info(session, instance_dict['ImageId'])
 
+    # OK Don't get me started on this next block! In dire need of a refactor
+    try:
+        ami_source_id = get_tag(ami_info[0]['Tags'], 'SourceAmi')
+    except (KeyError, IndexError):
+        ami_source_id = 'Ami Source Tag Not Set'
+    try:
+        ami_owner = get_tag(ami_info[0]['Tags'], 'Owner')
+    except (KeyError, IndexError):
+        ami_owner = 'Owner Tags Not Set'
+    try:
+        ami_name = ami_info[0]['Name']
+    except (KeyError, IndexError):
+        ami_name = 'Tags Not Set'
+    try:
+        ami_creation_date = str(ami_info[0]['CreationDate'])
+    except (KeyError, IndexError):
+        ami_creation_date = 'Creation Date Not Set'
+    try:
+        platform = instance_dict['Platform']
+    except (KeyError, IndexError):
+        platform = 'Linux or Other'
+    try:
+        vpc_id = instance_dict['VpcId']
+    except (KeyError, IndexError):
+        vpc_id = 'Unknown Vpc'
     try:
         instance_profile = instance_dict['IamInstanceProfile']['Arn']
     except KeyError:
@@ -255,20 +325,21 @@ def more_instance_info(session, instance_id, aws_env):
         'Instance_Name': name_tag,
         'Instance_ID': instance_dict['InstanceId'],
         'Image_ID': instance_dict['ImageId'],
+        'Image_Name': ami_name,
+        'Image_Owner': ami_owner,
+        'Image_Source': ami_source_id,
+        'Image_Creation_Date': ami_creation_date,
         'Instance_Type': instance_dict['InstanceType'],
         'Launch_Time': str(instance_dict['LaunchTime']),
-        'Instance_Platform': instance_dict['Platform'],
-        'VPC_ID': instance_dict['VpcId'],
+        'Instance_Platform': platform,
+        'VPC_ID': vpc_id,
         'Private_Ip': instance_dict['PrivateIpAddress'],
         'Monitoring_Enabled': instance_dict['Monitoring']['State'],
         'IAM_InstanceProfile': instance_profile,
         'Owner': owner_tag,
-        'Role': role_tag,
-        'Env': env_tag,
         'Team': team_tag,
         'HSN': hsn_tag,
         'Cost_ProjectCode': projectcode_tag,
-        'SSMCWconfig': ssmconfig_tag
     }
     return data
 

@@ -5,3 +5,4 @@ run_all_accounts.sh
 *_summary
 *.zip
 log_checker_v2.py
+Dockerfile
