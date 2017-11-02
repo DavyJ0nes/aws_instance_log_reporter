@@ -4,7 +4,7 @@ log_checker
   Looks through an AWS account and checks to see if the running instances
   are correctly pushing logs into Cloudwatch Logs
 
-Runs using Python 2.7
+Runs using Python 3.6
 DavyJ0nes 2017
 """
 
@@ -54,9 +54,9 @@ def main():
 
     # Debug Output
     if args.debug:
-        print 'instance_ids:\n{}'.format(instance_ids)
-        print '============================================================================'
-        print 'log_streams:\n{}'.format(log_stream_ids)
+        print('instance_ids:\n{}'.format(instance_ids))
+        print('============================================================================')
+        print('log_streams:\n{}'.format(log_stream_ids))
 
     # Compare instances and log_streams
     existing_logs, missing_logs = compare(args.debug, instance_ids, log_stream_ids)
@@ -84,22 +84,22 @@ def main():
 
     elif args.json:
         missing_log_instance_info = collate_instance_data(session, args.profile, missing_logs)
-        print json.dumps(missing_log_instance_info)
+        print(json.dumps(missing_log_instance_info))
 
     else:
         ### PRINT SUMMARY OF SCRIPT ###
-        print '-------------------------- SUMMARY FOR ENV: {} -----------------------------'.format(args.profile)
-        print '============================================================================'
-        print 'Instances with Existing Logs in Cloudwatch Logs: {}\n{}'.format(len(existing_logs), existing_logs)
-        print '\n============================================================================'
-        print 'Instances with Missing Logs in CloudWatch Logs:  {}\n{}'.format(len(missing_logs), missing_logs)
-        print '\n============================================================================'
-        print 'Count of Running Instances = {} | Count of Missing CloudWatch Logs = {}'.format(
-            len(instance_ids), len(missing_logs)
+        print('-------------------------- SUMMARY FOR ENV: {} -----------------------------'.format(args.profile))
+        print('============================================================================')
+        print('Instances with Existing Logs in Cloudwatch Logs: {}\n{}'.format(len(existing_logs), existing_logs))
+        print('\n============================================================================')
+        print('Instances with Missing Logs in CloudWatch Logs:  {}\n{}'.format(len(missing_logs), missing_logs))
+        print('\n============================================================================')
+        print('Count of Running Instances = {} | Count of Missing CloudWatch Logs = {}'.format(
+            len(instance_ids), len(missing_logs))
         )
         if args.ssm:
-            print '\n============================================================================'
-            print 'Instances with SSM Not Configured: {}\n{}'.format(len(ssm_not_active), ssm_not_active)
+            print('\n============================================================================')
+            print('Instances with SSM Not Configured: {}\n{}'.format(len(ssm_not_active), ssm_not_active))
 
 
 ########## HELPER FUNCTIONS ##########
@@ -122,9 +122,9 @@ def get_log_streams(session, log_group_names, instance_id, hours):
     """get_log_streams returns list of log streams that are within the log groups"""
     client = session.client('logs')
 
-    difference = long(hours * 3600)
-    start = long((time.time() - difference) * 1000)
-    end = long(time.time() * 1000)
+    difference = int(hours * 3600)
+    start = int((time.time() - difference) * 1000)
+    end = int(time.time() * 1000)
 
     log_streams = []
     for log in log_group_names:
@@ -205,12 +205,12 @@ def compare(debug, instance_array, log_array):
     for inst in instance_array:
         if inst in log_array:
             if debug:
-                print '{} has log stream'.format(inst)
+                print('{} has log stream'.format(inst))
             existing_logs.append(inst)
         else:
             # Debug Output
             if debug:
-                print 'ERROR: {} doesnt have log stream'.format(inst)
+                print('ERROR: {} doesnt have log stream'.format(inst))
             missing_logs.append(inst)
 
     return existing_logs, missing_logs
@@ -236,11 +236,11 @@ def ssm_active(debug, session, instanceid):
     # Debug Output
     if debug:
         info = response['InstanceInformationList'][0]
-        print '\nssm_active | Response'
-        print 'InstanceID:         {}'.format(info['InstanceId'])
-        print 'Computer Name:      {}'.format(info['ComputerName'])
-        print 'PingStatus:         {}'.format(info['PingStatus'])
-        print '\nSSM Info Dump:\n{}'.format(info)
+        print('\nssm_active | Response')
+        print('InstanceID:         {}'.format(info['InstanceId']))
+        print('Computer Name:      {}'.format(info['ComputerName']))
+        print('PingStatus:         {}'.format(info['PingStatus']))
+        print('\nSSM Info Dump:\n{}'.format(info))
 
     return True
 
@@ -278,7 +278,7 @@ def more_instance_info(session, instance_id, aws_env):
     try:
         instance_dict = response['Reservations'][0]['Instances'][0]
     except KeyError:
-        print instance_id
+        print(instance_id)
 
     owner_tag = get_tag(instance_dict['Tags'], 'Owner')
     # ssmconfig_tag = get_tag(instance_dict['Tags'], 'SSMCWconfig')

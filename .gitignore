@@ -6,3 +6,4 @@ run_all_accounts.sh
 *.zip
 log_checker_v2.py
 Dockerfile
+old*
