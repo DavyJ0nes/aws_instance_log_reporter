@@ -348,8 +348,8 @@ def output_csv(file_name, array):
     """Outputs A Dictionary as a CSV File"""
     try:
         keys = array[0].keys()
-        with open(file_name, 'wb') as output_file:
-            dict_writer = csv.DictWriter(output_file, keys)
+        with open(file_name, 'w') as output_file:
+            dict_writer = csv.DictWriter(output_file, fieldnames=keys)
             dict_writer.writeheader()
             dict_writer.writerows(array)
     except IndexError:
